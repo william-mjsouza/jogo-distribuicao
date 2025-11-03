@@ -1,0 +1,379 @@
+import pygame
+import random
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from scipy.interpolate import make_interp_spline
+
+# === CONFIGURAÇÕES ===
+pygame.init()
+screen = pygame.display.set_mode((1000, 550))
+pygame.display.set_caption("Jogo do 21 com Distribuição Hipergeométrica")
+font = pygame.font.SysFont("arial", 24)
+clock = pygame.time.Clock()
+
+# === CARTAS E VALORES ===
+naipes_map = {'C': '♥', 'O': '♦', 'E': '♠', 'P': '♣'}
+naipes = ['C', 'O', 'E', 'P']
+valores_cartas = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
+valores = {'A': 11, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+           '8': 8, '9': 9, '10': 10, 'J': 10, 'Q': 10, 'K': 10}
+
+baralho_completo = [(c, n) for c in valores_cartas for n in naipes]
+
+# === VARIÁVEIS DO JOGO E PONTUAÇÃO ===
+baralho = []
+mao_jogador = []
+mao_computador = []
+estado = "INICIO"
+grafico_mode = "prob_hit"
+score = 0          # Pontuação total do jogador (Simples: +10 / -10)
+
+
+# === FUNÇÕES DE JOGO ===
+def novo_baralho():
+    global baralho
+    baralho = list(baralho_completo)
+    random.shuffle(baralho)
+
+
+def sacar_carta():
+    if not baralho:
+        novo_baralho()
+    return baralho.pop(0)
+
+
+def valor_mao(mao):
+    val = sum(valores[c[0]] for c in mao)
+    num_ases = sum(1 for c in mao if c[0] == 'A')
+
+    while val > 21 and num_ases > 0:
+        val -= 10
+        num_ases -= 1
+    
+    # Se a mão inicial for um Ás e uma carta de valor 10 (Blackjack)
+    if val == 21 and len(mao) == 2:
+        return 21.5  # Sinaliza Blackjack
+    
+    return val
+
+
+def iniciar_jogo():
+    global mao_jogador, mao_computador, estado
+    novo_baralho()
+    mao_jogador = [sacar_carta(), sacar_carta()]
+    mao_computador = [sacar_carta(), sacar_carta()]
+    
+    # Verifica Blackjack Imediatamente (início da partida)
+    vj = valor_mao(mao_jogador)
+    vc = valor_mao(mao_computador)
+    
+    if vj == 21.5 or vc == 21.5:
+        # Se alguém tem Blackjack, o jogo termina imediatamente
+        turno_computador() # Revela a carta do computador
+        verificar_resultado(blackjack_check=True)
+        estado = "FIM"
+    else:
+        estado = "JOGANDO"
+
+
+def turno_computador():
+    global mao_computador
+    # O dealer joga até 17, valor_mao lida com o Ás (mas não retorna 21.5 após a 2ª carta)
+    while valor_mao(mao_computador) < 17:
+        mao_computador.append(sacar_carta())
+
+
+def verificar_resultado(blackjack_check=False):
+    """Verifica o vencedor e atualiza a pontuação (+10 / -10)."""
+    global score
+    
+    # Usa o valor 'puro' da mão para comparação
+    vj = valor_mao(mao_jogador) 
+    vc = valor_mao(mao_computador)
+    
+    # Normaliza 21.5 para 21
+    if vj == 21.5: vj_comp = 21 
+    if vc == 21.5: vc_comp = 21 
+
+    # Caso 1: Blackjacks iniciais
+    if blackjack_check:
+        bj_j = (valor_mao(mao_jogador) == 21.5)
+        bj_c = (valor_mao(mao_computador) == 21.5)
+        
+        if bj_j and not bj_c:
+            resultado = "BLACKJACK! JOGADOR VENCEU!"
+            score += 10 # Ganha 10 pontos
+        elif bj_c and not bj_j:
+            resultado = "BLACKJACK DO COMPUTADOR (PERDEU)"
+            score -= 10 # Perde 10 pontos
+        elif bj_j and bj_c:
+            resultado = "BLACKJACK: EMPATE"
+            pass # Empate não altera a pontuação
+        else:
+             pass 
+
+    # Caso 2: Jogador Estourou
+    if valor_mao(mao_jogador) > 21:
+        resultado = "JOGADOR ESTOUROU (PERDEU)"
+        score -= 10 # Perde 10 pontos
+    
+    # Caso 3: Computador Estourou (Vitória)
+    elif valor_mao(mao_computador) > 21:
+        resultado = "JOGADOR VENCEU! (C: Estourou)"
+        score += 10 # Ganha 10 pontos
+        
+    # Caso 4: Comparação de Pontos
+    elif vj > vc:
+        resultado = "JOGADOR VENCEU!"
+        score += 10 # Ganha 10 pontos
+        
+    elif vj < vc:
+        resultado = "JOGADOR PERDEU"
+        score -= 10 # Perde 10 pontos
+        
+    # Caso 5: Empate
+    else:
+        resultado = "EMPATE"
+        pass # Empate não altera a pontuação
+    
+    return resultado
+
+
+# === DISTRIBUIÇÃO HIPERGEOMÉTRICA (Mantida) ===
+def prob_hipergeometrica(k, N, K, n):
+    if k < 0 or k > n or k > K or n - k > N - K:
+        return 0
+    try:
+        prob = (math.comb(K, k) * math.comb(N - K, n - k)) / math.comb(N, n)
+    except ValueError:
+        return 0
+    return prob
+
+
+def get_params_hipergeometrica(n_tentativas=1):
+    N = len(baralho)
+    if N == 0:
+        return 52, 16, n_tentativas
+    K_total = 16
+    cartas_jogadas = mao_jogador + mao_computador
+    k_sacados = sum(1 for carta in cartas_jogadas if valores.get(carta[0]) == 10)
+    K_10 = K_total - k_sacados
+    return N, K_10, n_tentativas
+
+
+def desenhar_grafico(surface):
+    fig, ax = plt.subplots(figsize=(4, 4))
+    N, K_10, _ = get_params_hipergeometrica()
+
+    if grafico_mode == "pmf_completa":
+        # --- CÁLCULO E PLOTAGEM DA PMF COMPLETA ---
+        n_tentativas = 10
+        n_simulacoes = 1000 
+        k_max = min(n_tentativas, K_10)
+        k_valores = np.arange(0, k_max + 1)
+        
+        pmf_valores = [prob_hipergeometrica(k, N, K_10, n_tentativas) for k in k_valores]
+
+        # 1. Histograma Empírico (Simulação)
+        try:
+            resultados_empiricos = np.random.hypergeometric(K_10, N - K_10, n_tentativas, size=n_simulacoes)
+            ax.hist(resultados_empiricos, bins=np.arange(-0.5, k_max + 1.5), 
+                    density=True, rwidth=0.8, color='skyblue', alpha=0.5, 
+                    label=f'Empírico ({n_simulacoes} sim.)', zorder=1)
+        except ValueError:
+             pass
+
+        # 2. PMF Teórica (Barras e Curva)
+        ax.bar(k_valores, pmf_valores, color='purple', alpha=0.55, width=0.4, label='PMF Teórica', zorder=2)
+
+        if len(k_valores) > 1:
+            x_smooth = np.linspace(k_valores.min(), k_valores.max(), 300)
+            spline = make_interp_spline(k_valores, pmf_valores, k=2)
+            y_smooth = spline(x_smooth)
+            y_smooth = np.clip(y_smooth, 0, 1)
+            ax.plot(x_smooth, y_smooth, color='red', linewidth=2.5, label='Curva Suavizada', zorder=3)
+        else:
+            ax.plot(k_valores, pmf_valores, color='red', marker='o', linestyle='--', linewidth=2, zorder=3)
+
+        # 3. Configurações Finais
+        ax.set_xticks(k_valores)
+        ax.set_ylim(0, max(max(pmf_valores) * 1.25, 0.2)) 
+        ax.set_xlim(-0.5, k_max + 0.5)
+        ax.set_xlabel(f"Nº de '10s' em {n_tentativas} cartas (k)")
+        ax.set_ylabel("P(X=k) / Freq. Relativa")
+        ax.set_title(f"PMF Teórica vs. Empírica (N={N}, K₁₀={K_10}, n={n_tentativas})", fontsize=9)
+        ax.legend(fontsize=7, loc='upper right')
+
+        ax.text(0.5, -0.2,
+                f"Cartas restantes: N={N} | Cartas '10' restantes: K₁₀={K_10}",
+                transform=ax.transAxes,
+                ha='center', fontsize=8, color='white',
+                bbox=dict(facecolor='black', alpha=0.6, pad=4, edgecolor='none'))
+
+    else:
+        # --- CÁLCULO E PLOTAGEM DO PROB_HIT (modo padrão) ---
+        p_10 = prob_hipergeometrica(1, N, K_10, 1)
+        valor_atual = valor_mao(mao_jogador)
+        if valor_atual == 21.5: valor_atual = 21 # Normaliza Blackjack para lógica de estourar
+
+        max_seguro = 21 - valor_atual
+
+        if valor_atual + 10 > 21:
+            titulo = f"PRÓXIMA JOGADA: PERIGO! (N={N})"
+            texto_central = f"Se vier um '10' ({p_10*100:.1f}%), você estoura!"
+            cor_barra = 'red'
+        else:
+            titulo = f"PRÓXIMA JOGADA: (N={N}, P(10)={p_10*100:.1f}%)"
+            cartas_jogadas = mao_jogador + mao_computador
+            K_estouro = 0
+            for valor_carta in valores_cartas:
+                val = valores[valor_carta]
+                if val > max_seguro:
+                    total_val = 4
+                    sacados_val = sum(1 for carta in cartas_jogadas if carta[0] == valor_carta)
+                    K_estouro += (total_val - sacados_val)
+            p_estouro = prob_hipergeometrica(1, N, K_estouro, 1)
+            texto_central = f"Máx. seguro: {max_seguro}. P(Estourar): {p_estouro * 100:.1f}%"
+            cor_barra = 'green'
+
+        ax.bar(['P(10)'], [p_10], color=cor_barra)
+        ax.set_ylim(0, 0.5)
+        ax.set_ylabel("Probabilidade")
+        ax.set_title(titulo, fontsize=9)
+        ax.text(0.5, 0.8, texto_central, ha='center', va='center',
+                transform=ax.transAxes, fontsize=10)
+
+    # --- Renderiza o gráfico em surface Pygame ---
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    raw_data = canvas.buffer_rgba()
+    size = canvas.get_width_height()
+    surf = pygame.image.frombuffer(raw_data, size, "RGBA")
+    plt.close(fig)
+    return surf
+
+
+# === LOOP PRINCIPAL ===
+novo_baralho()
+running = True
+
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+        if estado == "INICIO":
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                iniciar_jogo()
+
+        elif estado == "JOGANDO":
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_h:
+                    mao_jogador.append(sacar_carta())
+                    # Verifica estouro após o hit
+                    if valor_mao(mao_jogador) > 21 and valor_mao(mao_jogador) != 21.5:
+                        resultado = verificar_resultado()
+                        turno_computador()
+                        estado = "FIM"
+                elif event.key == pygame.K_s:
+                    turno_computador()
+                    resultado = verificar_resultado()
+                    estado = "FIM"
+                elif event.key == pygame.K_g:
+                    grafico_mode = 'pmf_completa' if grafico_mode == 'prob_hit' else 'prob_hit'
+
+        elif estado == "FIM":
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                iniciar_jogo()
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
+                grafico_mode = 'pmf_completa' if grafico_mode == 'prob_hit' else 'prob_hit'
+
+    # === RENDERIZAÇÃO ===
+    screen.fill((25, 25, 25))
+
+    if estado in ["JOGANDO", "FIM"]:
+        titulo = font.render("Jogo do 21 (Blackjack) - Análise Hipergeométrica", True, (255, 255, 0))
+        screen.blit(titulo, (50, 20))
+
+        # Exibe Pontuação
+        score_text = font.render(f"PONTUAÇÃO: {score}", True, (255, 255, 255))
+        screen.blit(score_text, (50, 50)) 
+        
+        # Cartas do jogador
+        y = 350
+        x = 50
+        for carta in mao_jogador:
+            simbolo_naipe = naipes_map.get(carta[1], '')
+            texto_carta = f"{carta[0]} {simbolo_naipe}"
+            pygame.draw.rect(screen, (100, 150, 255), (x, y, 70, 90))
+            cor_texto = (255, 0, 0) if carta[1] in ['C', 'O'] else (0, 0, 0)
+            text = font.render(texto_carta, True, cor_texto)
+            screen.blit(text, (x + 5, y + 30))
+            x += 80
+            
+        # Exibe pontuação do jogador (normaliza 21.5 para 21 ou Blackjack)
+        vj_display = valor_mao(mao_jogador)
+        if vj_display == 21.5:
+            vj_display = "BLACKJACK (21)"
+        elif vj_display > 21.5:
+            vj_display = int(vj_display) 
+        else:
+            vj_display = int(vj_display)
+
+        texto_jogador = font.render(f"Jogador: {vj_display} pontos", True, (255, 255, 255))
+        screen.blit(texto_jogador, (50, 300))
+
+        # Cartas do computador
+        y = 100
+        x = 50
+        for i, carta in enumerate(mao_computador):
+            if estado == "JOGANDO" and i == 0:
+                texto_carta = "??"
+                pygame.draw.rect(screen, (200, 200, 200), (x, y, 70, 90))
+                cor_texto = (0, 0, 0)
+            else:
+                simbolo_naipe = naipes_map.get(carta[1], '')
+                texto_carta = f"{carta[0]} {simbolo_naipe}"
+                pygame.draw.rect(screen, (255, 100, 100), (x, y, 70, 90))
+                cor_texto = (255, 0, 0) if carta[1] in ['C', 'O'] else (0, 0, 0)
+            text = font.render(texto_carta, True, cor_texto)
+            screen.blit(text, (x + 5, y + 30))
+            x += 80
+
+        texto_computador = font.render(f"Computador: {'??' if estado == 'JOGANDO' else valor_mao(mao_computador)} pontos", True, (255, 255, 255))
+        screen.blit(texto_computador, (50, 80)) 
+
+        info_baralho = font.render(f"Cartas restantes no Baralho: {len(baralho)}", True, (150, 150, 150))
+        screen.blit(info_baralho, (50, 200))
+
+    if estado == "INICIO":
+        texto = font.render("Pressione [ESPAÇO] para começar", True, (255, 255, 255))
+        screen.blit(texto, (50, 250))
+
+    elif estado == "JOGANDO":
+        instrucoes = font.render("[H] Hit | [S] Stand | [G] Alternar Gráfico", True, (200, 200, 200))
+        screen.blit(instrucoes, (50, 480))
+
+    elif estado == "FIM":
+        # A variável 'resultado' precisa ser recalculada se não for definida aqui
+        # (Ela só é definida na chamada de verificar_resultado no loop do jogo)
+        try:
+            resultado_final = resultado
+        except NameError:
+             resultado_final = verificar_resultado() # Fallback para garantir que o resultado seja exibido
+
+        resultado_texto = font.render(f"RESULTADO: {resultado_final}", True, (0, 255, 0) if "VENCEU" in resultado_final else (255, 0, 0))
+        instrucoes = font.render("[R] Recomeçar | [G] Alternar Gráfico", True, (200, 200, 200))
+        screen.blit(resultado_texto, (50, 450))
+        screen.blit(instrucoes, (50, 480))
+
+    # === GRÁFICO HIPERGEOMÉTRICO ===
+    grafico_surface = desenhar_grafico(screen)
+    screen.blit(grafico_surface, (550, 100))
+
+    pygame.display.flip()
+    clock.tick(30)
+
+pygame.quit()
