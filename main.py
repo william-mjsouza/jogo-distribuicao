@@ -29,7 +29,7 @@ mao_computador = []
 estado = "INICIO"
 grafico_mode = "prob_hit"
 score = 0
-n_tentativas_grafico = 3 # NOVO: Parâmetro n inicial para o gráfico PMF completa
+n_tentativas_grafico = 3 # Parâmetro n inicial para o gráfico PMF completa
 
 
 # === FUNÇÕES DE JOGO ===
@@ -70,7 +70,9 @@ def iniciar_jogo():
     
     if vj == 21.5 or vc == 21.5:
         turno_computador()
-        verificar_resultado(blackjack_check=True)
+        # Garante que 'resultado' seja retornado para uso posterior
+        global resultado
+        resultado = verificar_resultado(blackjack_check=True)
         estado = "FIM"
     else:
         estado = "JOGANDO"
@@ -92,7 +94,7 @@ def verificar_resultado(blackjack_check=False):
     if vj == 21.5: vj_comp = 21 
     if vc == 21.5: vc_comp = 21 
 
-    # Caso 1: Blackjacks iniciais
+    # Casos de Blackjack inicial
     if blackjack_check:
         bj_j = (valor_mao(mao_jogador) == 21.5)
         bj_c = (valor_mao(mao_computador) == 21.5)
@@ -135,7 +137,7 @@ def verificar_resultado(blackjack_check=False):
     
     return resultado
 
-# NOVO: Função para alterar o parâmetro n do gráfico (3 a 10)
+# Função para alterar o parâmetro n do gráfico (3 a 10)
 def alterar_n_grafico():
     global n_tentativas_grafico
     
@@ -172,17 +174,15 @@ def get_params_hipergeometrica(n_tentativas=1):
 def desenhar_grafico(surface):
     fig, ax = plt.subplots(figsize=(4, 4))
     
-    # Usa o parâmetro n global no modo completo
     n_grafico_global = n_tentativas_grafico 
     
     N, K_10, _ = get_params_hipergeometrica()
 
     if grafico_mode == "pmf_completa":
         # --- CÁLCULO E PLOTAGEM DA PMF COMPLETA ---
-        n_tentativas = n_grafico_global # Usa o N variável
+        n_tentativas = n_grafico_global
         n_simulacoes = 1000 
         
-        # Limita k_max para que nunca exceda N restante
         k_max = min(n_tentativas, K_10, N) 
         
         k_valores = np.arange(0, k_max + 1)
@@ -193,14 +193,12 @@ def desenhar_grafico(surface):
         try:
             resultados_empiricos = np.random.hypergeometric(K_10, N - K_10, n_tentativas, size=n_simulacoes)
             
-            # Ajusta o bins para que cubra todos os k_valores
             bins_ajustados = np.concatenate([k_valores - 0.5, [k_valores.max() + 0.5]]) if len(k_valores) > 0 else np.array([-0.5, 0.5])
 
             ax.hist(resultados_empiricos, bins=bins_ajustados, 
                     density=True, rwidth=0.8, color='skyblue', alpha=0.5, 
                     label=f'Empírico ({n_simulacoes} sim.)', zorder=1)
         except ValueError:
-             # Este erro pode ocorrer se K_10, N-K_10 ou n_tentativas for inválido
              pass
 
         # 2. PMF Teórica (Barras e Curva)
@@ -213,7 +211,6 @@ def desenhar_grafico(surface):
             y_smooth = np.clip(y_smooth, 0, 1)
             ax.plot(x_smooth, y_smooth, color='red', linewidth=2.5, label='Curva Suavizada', zorder=3)
         else:
-            # Caso especial para n=1 ou k_max=0
             ax.plot(k_valores, pmf_valores, color='red', marker='o', linestyle='--', linewidth=2, zorder=3)
 
         # 3. Configurações Finais
@@ -284,17 +281,17 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
-        if estado == "INICIO":
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                iniciar_jogo()
+        if event.type == pygame.KEYDOWN: # MOVEMOS ESTA VERIFICAÇÃO PARA CIMA
+            if estado == "INICIO":
+                if event.key == pygame.K_SPACE:
+                    iniciar_jogo()
 
-        elif estado == "JOGANDO":
-            if event.type == pygame.KEYDOWN:
+            elif estado == "JOGANDO":
                 if event.key == pygame.K_h:
                     mao_jogador.append(sacar_carta())
                     if valor_mao(mao_jogador) > 21 and valor_mao(mao_jogador) != 21.5:
-                        resultado = verificar_resultado()
-                        # Não chama turno_computador, pois o jogador perdeu automaticamente
+                        # O resultado deve ser calculado antes de o estado mudar
+                        resultado = verificar_resultado() 
                         estado = "FIM"
                 elif event.key == pygame.K_s:
                     turno_computador()
@@ -305,13 +302,13 @@ while running:
                 elif event.key == pygame.K_n:
                     alterar_n_grafico() # Altera o valor de n
 
-        elif estado == "FIM":
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                iniciar_jogo()
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
-                grafico_mode = 'pmf_completa' if grafico_mode == 'prob_hit' else 'prob_hit'
-            elif event.key == pygame.KEYDOWN and event.key == pygame.K_n:
-                alterar_n_grafico() # Altera o valor de n
+            elif estado == "FIM":
+                if event.key == pygame.K_r:
+                    iniciar_jogo()
+                elif event.key == pygame.K_g:
+                    grafico_mode = 'pmf_completa' if grafico_mode == 'prob_hit' else 'prob_hit'
+                elif event.key == pygame.K_n:
+                    alterar_n_grafico() # Altera o valor de n
 
 
     # === RENDERIZAÇÃO ===
@@ -382,7 +379,8 @@ while running:
         try:
             resultado_final = resultado
         except NameError:
-            resultado_final = verificar_resultado()
+            # Este fallback é crucial se o jogo for iniciado e imediatamente for para FIM (Blackjack)
+            resultado_final = verificar_resultado() 
 
         resultado_texto = font.render(f"RESULTADO: {resultado_final}", True, (0, 255, 0) if "VENCEU" in resultado_final else (255, 0, 0))
         instrucoes = font.render("[R] Recomeçar | [G] Alternar Gráfico | [N] Altera n (n={})".format(n_tentativas_grafico), True, (200, 200, 200))
