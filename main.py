@@ -155,7 +155,7 @@ def verificar_resultado(blackjack_check=False):
             score += 10
         elif bj_c and not bj_j:
             resultado = "BLACKJACK DO COMPUTADOR (PERDEU)"
-            score -= 10
+            score -= 0
         elif bj_j and bj_c:
             resultado = "BLACKJACK: EMPATE"
             pass
@@ -164,7 +164,7 @@ def verificar_resultado(blackjack_check=False):
 
     elif valor_mao(mao_jogador) > 21:
         resultado = "JOGADOR ESTOUROU (PERDEU)"
-        score -= 10
+        score -= 0
     
     elif valor_mao(mao_computador) > 21:
         resultado = "JOGADOR VENCEU! (C: Estourou)"
@@ -176,7 +176,7 @@ def verificar_resultado(blackjack_check=False):
         
     elif vj < vc:
         resultado = "JOGADOR PERDEU"
-        score -= 10
+        score -= 0
         
     else:
         resultado = "EMPATE"
