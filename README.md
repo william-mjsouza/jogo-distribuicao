@@ -10,7 +10,7 @@ Este projeto explora a intersecção entre a teoria de probabilidade e a jogabil
 | :--- | :--- | :--- |
 | **Criatividade** | ✅ **Alta** | Aplicamos a teoria estatística (Hipergeométrica) a um jogo real, transformando a tela em um laboratório de probabilidade em tempo real. |
 | **Jogabilidade** | ✅ **Funcional** | O jogo segue as regras básicas do Blackjack (Hit/Stand), possui controle de pontuação (+10) e lida corretamente com o Ás (1/11) e o Blackjack natural. |
-| **Distribuições de Probabilidade** | ✅ **Essência do Projeto** | O gráfico lateral atualiza os parâmetros $N$ e $K_{10}$ a cada carta e exibe a **PMF (Função Massa de Probabilidade)** Hipergeométrica de forma explícita. |
+| **Distribuições de Probabilidade** | ✅ **Essência do Projeto** | O gráfico lateral atualiza os parâmetros n, $N$ e $K_{10}$ a cada carta e exibe a **PMF (Função Massa de Probabilidade)** Hipergeométrica de forma explícita. |
 | **Apresentação** | ✅ **Clara e Explícita** | O projeto roda em uma tela dividida, com representações claras para cartas, valores, placar e análise estatística. |
 
 ---
